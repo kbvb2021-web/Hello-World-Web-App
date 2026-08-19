@@ -52,7 +52,7 @@ jobs:
           port: ${{ secrets.EC2_SSH_PORT || '22' }}
           script: |
             set -e
-            TARGET_DIR="${{ secrets.EC2_TARGET_DIR || '/home/' + secrets.EC2_USER + '/app' }}"
+            target: ${{ secrets.EC2_TARGET_DIR || format('/home/{0}/app', secrets.EC2_USER) }}
             mkdir -p "$TARGET_DIR"
             # Install Java if missing (supports Debian/Ubuntu and RHEL/AMZN)
             if ! command -v java >/dev/null 2>&1; then
