@@ -33,7 +33,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: jar 
-          path: target/*.jar
+          path: /home/ubuntu/vin/*.jar
           if-no-files-found: error
       - name: Download artifact (build output)
         uses: actions/download-artifact@v4
