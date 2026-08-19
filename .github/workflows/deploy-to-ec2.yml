@@ -29,15 +29,19 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - name: Upload artifact (build output)
+        - name: Verify JAR
+          run: |
+            echo "JAR files:"
+            find target -type f -name "*.jar" -print
+         - name: Upload artifact (build output)
         uses: actions/upload-artifact@v4
         with:
           name: jar
           path: target/*.jar
         # If not using artifacts: fetch directly from workspace target path by repeating the build or using actions/checkout.
         
-      - name: Verify downloaded artifact
-        run: |
+        - name: Verify downloaded artifact
+          run: |
           echo "Downloaded files:"
           echo "EC2 Host: ${{ secrets.EC2_HOST }}"
           find . -type f -print
