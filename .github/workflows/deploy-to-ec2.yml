@@ -40,7 +40,7 @@ jobs:
           echo "Downloaded files:"
           find . -type f -print
           echo "Artifact directory:"
-          ls -lah home/
+          ls -lah home
       - name: Copy JAR to EC2 via SCP
         uses: appleboy/scp-action@v0.1.7
         with:
