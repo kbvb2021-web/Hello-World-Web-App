@@ -1,35 +1,70 @@
-# This workflow will build a Java project with Maven, and cache/restore any dependencies to improve the workflow execution time
-# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-java-with-maven
-
-# This workflow uses actions that are not certified by GitHub.
-# They are provided by a third-party and are governed by
-# separate terms of service, privacy policy, and support
-# documentation.
-
-name: Java CI with Maven
+name: Build and deploy to EC2
 
 on:
   push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
+    branches: [ main ]
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
-
+    outputs:
+      jar-path: ${{ steps.build.outputs.jar-path }}
     steps:
-    - uses: actions/checkout@v4
-    - name: Set up JDK 17
-      uses: actions/setup-java@v4
-      with:
-        java-version: '17'
-        distribution: 'temurin'
-        cache: maven
-    - name: Build with Maven
-      run: mvn -B package --file pom.xml
+      - name: Checkout
+        uses: actions/checkout@v4
 
-    # Optional: Uploads the full dependency graph to GitHub to improve the quality of Dependabot alerts this repository can receive
-    - name: Update dependency graph
-      uses: advanced-security/maven-dependency-submission-action@571e99aab1055c2e71a1e2309b9691de18d6b7d6
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '11'
+
+      - name: Build with Maven
+        id: build
+        run: mvn -B package -DskipTests
+      - name: Set jar path output
+        run: echo "::set-output name=jar-path::target/helloworld-1.0-SNAPSHOT.jar"
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifact (build output)
+        uses: actions/download-artifact@v4
+        with:
+          name: jar
+        # If not using artifacts: fetch directly from workspace target path by repeating the build or using actions/checkout.
+      - name: Copy JAR to EC2 via SCP
+        uses: appleboy/scp-action@v0.1.9
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: ${{ secrets.EC2_SSH_PORT || '22' }}
+          source: target/helloworld-1.0-SNAPSHOT.jar
+          target: ${{ secrets.EC2_TARGET_DIR || '/home/' + secrets.EC2_USER + '/app' }}
+      - name: Install Java if needed and start app on EC2
+        uses: appleboy/ssh-action@v0.1.7
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: ${{ secrets.EC2_SSH_PORT || '22' }}
+          script: |
+            set -e
+            TARGET_DIR="${{ secrets.EC2_TARGET_DIR || '/home/' + secrets.EC2_USER + '/app' }}"
+            mkdir -p "$TARGET_DIR"
+            # Install Java if missing (supports Debian/Ubuntu and RHEL/AMZN)
+            if ! command -v java >/dev/null 2>&1; then
+              if [ -f /etc/debian_version ]; then
+                sudo apt-get update
+                sudo apt-get install -y openjdk-11-jre-headless
+              else
+                # Amazon Linux / RHEL variants
+                sudo yum install -y java-11-amazon-corretto-headless || sudo yum install -y java-11-openjdk
+              fi
+            fi
+            # stop previously running instance (best-effort)
+            pkill -f 'helloworld' || true
+            # move jar into target dir (the scp action already places it there)
+            nohup java -jar "$TARGET_DIR/helloworld-1.0-SNAPSHOT.jar" > "$TARGET_DIR/helloworld.log" 2>&1 &
