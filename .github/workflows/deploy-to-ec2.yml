@@ -29,7 +29,13 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-     - name: Copy JAR to EC2 via SCP
+      - name: Upload artifact (build output)
+        uses: actions/upload-artifact@v4
+        with:
+          name: jar
+          needs: build
+        # If not using artifacts: fetch directly from workspace target path by repeating the build or using actions/checkout.
+      - name: Copy JAR to EC2 via SCP
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.EC2_HOST }}
