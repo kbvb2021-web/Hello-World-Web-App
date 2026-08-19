@@ -42,7 +42,7 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           port: ${{ secrets.EC2_SSH_PORT || '22' }}
           source: target/helloworld-1.0-SNAPSHOT.jar
-          target: ${{ secrets.EC2_TARGET_DIR || format('/home/{0}/app', secrets.EC2_USER) 
+          target: ${{ secrets.EC2_TARGET_DIR || format('/home/{0}/app', secrets.EC2_USER) }}
       - name: Install Java if needed and start app on EC2
         uses: appleboy/ssh-action@v0.1.7
         with:
