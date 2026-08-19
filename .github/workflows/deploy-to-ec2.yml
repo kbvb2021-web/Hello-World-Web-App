@@ -33,7 +33,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: jar
-          path: ./homne
+          path: /homne
         # If not using artifacts: fetch directly from workspace target path by repeating the build or using actions/checkout.
       - name: Verify downloaded artifact
         run: |
@@ -41,7 +41,7 @@ jobs:
           find . -type f -print
           echo "Artifact directory:"
           pwd
-          ls -la ./home
+          ls -la /home
       - name: Copy JAR to EC2 via SCP
         uses: appleboy/scp-action@v0.1.7
         with:
