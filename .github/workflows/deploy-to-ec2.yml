@@ -29,27 +29,13 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-        - name: Verify JAR
-          run: |
-            echo "JAR files:"
-            find target -type f -name "*.jar" -print
-         - name: Upload artifact (build output)
-        uses: actions/upload-artifact@v4
+      - name: Download artifact (build output)
+        uses: actions/download-artifact@v4
         with:
           name: jar
-          path: target/*.jar
         # If not using artifacts: fetch directly from workspace target path by repeating the build or using actions/checkout.
-        
-        - name: Verify downloaded artifact
-          run: |
-          echo "Downloaded files:"
-          echo "EC2 Host: ${{ secrets.EC2_HOST }}"
-          find . -type f -print
-          echo "Artifact directory:"
-          pwd
-          ls -la /home
       - name: Copy JAR to EC2 via SCP
-        uses: appleboy/scp-action@v0.1.7
+        uses: appleboy/scp-action@v0.1.9
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
