@@ -33,7 +33,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: jar
-          path: ./homne
+          path: homne
         # If not using artifacts: fetch directly from workspace target path by repeating the build or using actions/checkout.
       - name: Verify downloaded artifact
         run: |
