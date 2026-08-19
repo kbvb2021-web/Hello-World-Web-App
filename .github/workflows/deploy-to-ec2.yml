@@ -35,9 +35,11 @@ jobs:
           name: jar
           path: /homne
         # If not using artifacts: fetch directly from workspace target path by repeating the build or using actions/checkout.
+        
       - name: Verify downloaded artifact
         run: |
           echo "Downloaded files:"
+          echo "EC2 Host: ${{ secrets.EC2_HOST }}"
           find . -type f -print
           echo "Artifact directory:"
           pwd
