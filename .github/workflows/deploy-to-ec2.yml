@@ -62,13 +62,15 @@ jobs:
           EC2_HOST="${EC2_HOST:?}"
           EC2_USER="${EC2_USER:?}"
           PORT="${EC2_PORT:-22}"
-          TARGET_DIR="${EC2_TARGET_DIR}"
+          TARGET_DIR="${EC2_TARGET_DIR:-/home/${EC2_USER}/app}"
 
           echo "Creating remote directory: $TARGET_DIR"
-          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa -p "$PORT" "${EC2_USER}@${EC2_HOST}" "mkdir -p '$TARGET_DIR' && chmod 755 '$TARGET_DIR'"
+          # Quote TARGET_DIR inside the remote command so the remote shell receives the correct path
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa -p "$PORT" "${EC2_USER}@${EC2_HOST}" "mkdir -p \"$TARGET_DIR\" && chmod 755 \"$TARGET_DIR\""
 
           echo "Copying JAR(s) to ${EC2_USER}@${EC2_HOST}:$TARGET_DIR"
-          scp -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa -P "$PORT" ./target/*.jar "${EC2_USER}@${EC2_HOST}:'$TARGET_DIR/'"
+          # Do NOT wrap the remote path in extra single quotes – expand it locally and pass it as the scp target
+          scp -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa -P "$PORT" ./target/*.jar "${EC2_USER}@${EC2_HOST}:$TARGET_DIR/"
 
       - name: Install Java if needed and start app on EC2
         env:
