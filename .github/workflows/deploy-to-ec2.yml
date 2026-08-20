@@ -1,4 +1,4 @@
-# Build and deploy to EC2 — improved
+# Build and deploy to EC2 — fixed deploy job
 on:
   push:
     branches: [ main ]
@@ -36,25 +36,39 @@ jobs:
           path: target
 
       - name: Prepare SSH key
-        # create a temporary ssh key file from the secret
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_rsa
+          printf "%s\n" "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
 
-      - name: Copy JAR to EC2 via scp
+      - name: Verify artifact present locally
+        run: |
+          echo "Local target contents:"
+          ls -la target || true
+          JAR_COUNT=$(ls -1 target/*.jar 2>/dev/null | wc -l || true)
+          if [ "$JAR_COUNT" -eq 0 ]; then
+            echo "No JAR found in ./target — aborting" >&2
+            exit 1
+          fi
+
+      - name: Ensure target dir exists on EC2 and copy JAR
         env:
           EC2_HOST: ${{ secrets.EC2_HOST }}
           EC2_USER: ${{ secrets.EC2_USER }}
           EC2_PORT: ${{ secrets.EC2_SSH_PORT }}
           EC2_TARGET_DIR: ${{ secrets.EC2_TARGET_DIR }}
         run: |
-          set -e
+          set -euo pipefail
+          EC2_HOST="${EC2_HOST:?}"
+          EC2_USER="${EC2_USER:?}"
           PORT="${EC2_PORT:-22}"
-          TARGET_DIR="${EC2_TARGET_DIR:-/home/${{ secrets.EC2_USER }}/app}"
-          mkdir -p "$(dirname target/placeholder)" || true
-          # scp the JAR file(s). downloaded artifact placed in ./target/
-          scp -o StrictHostKeyChecking=no -P "$PORT" ./target/*.jar "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:$TARGET_DIR/"
+          TARGET_DIR="${EC2_TARGET_DIR:-/home/${EC2_USER}/app}"
+
+          echo "Creating remote directory: $TARGET_DIR"
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa -p "$PORT" "${EC2_USER}@${EC2_HOST}" "mkdir -p '$TARGET_DIR' && chmod 755 '$TARGET_DIR'"
+
+          echo "Copying JAR(s) to ${EC2_USER}@${EC2_HOST}:$TARGET_DIR"
+          scp -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa -P "$PORT" ./target/*.jar "${EC2_USER}@${EC2_HOST}:'$TARGET_DIR/'"
 
       - name: Install Java if needed and start app on EC2
         env:
@@ -63,33 +77,36 @@ jobs:
           EC2_PORT: ${{ secrets.EC2_SSH_PORT }}
           EC2_TARGET_DIR: ${{ secrets.EC2_TARGET_DIR }}
         run: |
-          set -e
+          set -euo pipefail
+          EC2_HOST="${EC2_HOST:?}"
+          EC2_USER="${EC2_USER:?}"
           PORT="${EC2_PORT:-22}"
-          TARGET_DIR="${EC2_TARGET_DIR:-/home/${{ secrets.EC2_USER }}/app}"
-          # Run remote installer + launcher via ssh. Use the temporary key file created above.
-          ssh -o StrictHostKeyChecking=no -p "$PORT" -i ~/.ssh/id_rsa "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" bash -s <<'EOF'
-            set -e
-            TARGET_DIR='"'"$TARGET_DIR"'"'
-            mkdir -p "$TARGET_DIR"
-            # Install Java if missing (Debian/Ubuntu and RHEL/AMZN)
-            if ! command -v java >/dev/null 2>&1; then
-              if [ -f /etc/debian_version ]; then
-                sudo apt-get update
-                sudo DEBIAN_FRONTEND=noninteractive apt-get install -y openjdk-11-jre-headless
-              else
-                sudo yum install -y java-11-amazon-corretto-headless || sudo yum install -y java-11-openjdk
-              fi
+          TARGET_DIR="${EC2_TARGET_DIR:-/home/${EC2_USER}/app}"
+
+          # Run remote script, passing TARGET_DIR into the remote environment by prefixing the remote command.
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa -p "$PORT" "${EC2_USER}@${EC2_HOST}" "TARGET_DIR='$TARGET_DIR' bash -s" <<'EOF'
+          set -euo pipefail
+          echo "Remote target dir: $TARGET_DIR"
+          mkdir -p "$TARGET_DIR"
+          # Install Java if missing (Debian/Ubuntu and RHEL/AMZN)
+          if ! command -v java >/dev/null 2>&1; then
+            if [ -f /etc/debian_version ]; then
+              sudo apt-get update
+              sudo DEBIAN_FRONTEND=noninteractive apt-get install -y openjdk-11-jre-headless
+            else
+              sudo yum install -y java-11-amazon-corretto-headless || sudo yum install -y java-11-openjdk
             fi
-            # Gracefully stop previously running instance (best-effort)
-            pkill -f 'helloworld' || true
-            # Ensure the JAR exists and set permissions
-            JAR=$(ls -1 "$TARGET_DIR"/*.jar 2>/dev/null | tail -n1 || true)
-            if [ -z "$JAR" ]; then
-              echo "No JAR found in $TARGET_DIR" >&2
-              exit 2
-            fi
-            chmod 644 "$JAR"
-            # Launch in background (consider replacing this with a systemd service for production)
-            nohup java -jar "$JAR" > "$TARGET_DIR/helloworld.log" 2>&1 &
-            echo "App started with JAR: $JAR"
+          fi
+          # Stop previously running instance (best-effort)
+          pkill -f 'helloworld' || true
+
+          # Find the JAR in the target dir
+          JAR=$(ls -1 "$TARGET_DIR"/*.jar 2>/dev/null | tail -n1 || true)
+          if [ -z "$JAR" ]; then
+            echo "No JAR found in \"$TARGET_DIR\"" >&2
+            exit 2
+          fi
+          chmod 644 "$JAR"
+          nohup java -jar "$JAR" > "$TARGET_DIR/helloworld.log" 2>&1 &
+          echo "App started with JAR: $JAR"
           EOF
