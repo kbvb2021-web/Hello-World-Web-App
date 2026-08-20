@@ -1,14 +1,11 @@
-name: Build and deploy to EC2
-
-on: 
+# Build and deploy to EC2 — improved
+on:
   push:
     branches: [ main ]
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    outputs:
-      jar-path: ${{ steps.build.outputs.jar-path }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -20,10 +17,13 @@ jobs:
           java-version: '11'
 
       - name: Build with Maven
-        id: build
         run: mvn -B package -DskipTests
-      - name: Set jar path output
-        run: echo "::set-output name=jar-path::target/helloworld-1.0-SNAPSHOT.jar"
+
+      - name: Upload JAR artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: jar
+          path: target/*.jar
 
   deploy:
     needs: build
@@ -32,46 +32,64 @@ jobs:
       - name: Download artifact (build output)
         uses: actions/download-artifact@v4
         with:
-          name: target/helloworld-1.0-SNAPSHOT.jar
-      - name: Upload artifact (build output)
-        uses: actions/upload-artifact@v4
-        with:
-          name: jar 
-          path: /home/ubuntu/vin/*.jar
-          if-no-files-found: error
-      
-        # If not using artifacts: fetch directly from workspace target path by repeating the build or using actions/checkout.
-      - name: Copy JAR to EC2 via SCP
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          port: ${{ secrets.EC2_SSH_PORT || '22' }}
-          source: target/helloworld-1.0-SNAPSHOT.jar
-          target: ${{ secrets.EC2_TARGET_DIR || format('/home/{0}/app', secrets.EC2_USER) }}
+          name: jar
+          path: target
+
+      - name: Prepare SSH key
+        # create a temporary ssh key file from the secret
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+
+      - name: Copy JAR to EC2 via scp
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+          EC2_PORT: ${{ secrets.EC2_SSH_PORT }}
+          EC2_TARGET_DIR: ${{ secrets.EC2_TARGET_DIR }}
+        run: |
+          set -e
+          PORT="${EC2_PORT:-22}"
+          TARGET_DIR="${EC2_TARGET_DIR:-/home/${{ secrets.EC2_USER }}/app}"
+          mkdir -p "$(dirname target/placeholder)" || true
+          # scp the JAR file(s). downloaded artifact placed in ./target/
+          scp -o StrictHostKeyChecking=no -P "$PORT" ./target/*.jar "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:$TARGET_DIR/"
+
       - name: Install Java if needed and start app on EC2
-        uses: appleboy/ssh-action@v0.1.7
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          port: ${{ secrets.EC2_SSH_PORT || '22' }}
-          script: |
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+          EC2_PORT: ${{ secrets.EC2_SSH_PORT }}
+          EC2_TARGET_DIR: ${{ secrets.EC2_TARGET_DIR }}
+        run: |
+          set -e
+          PORT="${EC2_PORT:-22}"
+          TARGET_DIR="${EC2_TARGET_DIR:-/home/${{ secrets.EC2_USER }}/app}"
+          # Run remote installer + launcher via ssh. Use the temporary key file created above.
+          ssh -o StrictHostKeyChecking=no -p "$PORT" -i ~/.ssh/id_rsa "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" bash -s <<'EOF'
             set -e
-            target: ${{ secrets.EC2_TARGET_DIR || format('/home/{0}/app', secrets.EC2_USER) }}
+            TARGET_DIR='"'"$TARGET_DIR"'"'
             mkdir -p "$TARGET_DIR"
-            # Install Java if missing (supports Debian/Ubuntu and RHEL/AMZN)
+            # Install Java if missing (Debian/Ubuntu and RHEL/AMZN)
             if ! command -v java >/dev/null 2>&1; then
               if [ -f /etc/debian_version ]; then
                 sudo apt-get update
-                sudo apt-get install -y openjdk-11-jre-headless
+                sudo DEBIAN_FRONTEND=noninteractive apt-get install -y openjdk-11-jre-headless
               else
-                # Amazon Linux / RHEL variants
                 sudo yum install -y java-11-amazon-corretto-headless || sudo yum install -y java-11-openjdk
               fi
             fi
-            # stop previously running instance (best-effort)
+            # Gracefully stop previously running instance (best-effort)
             pkill -f 'helloworld' || true
-            # move jar into target dir (the scp action already places it there)
-            nohup java -jar "$TARGET_DIR/helloworld-1.0-SNAPSHOT.jar" > "$TARGET_DIR/helloworld.log" 2>&1 &
+            # Ensure the JAR exists and set permissions
+            JAR=$(ls -1 "$TARGET_DIR"/*.jar 2>/dev/null | tail -n1 || true)
+            if [ -z "$JAR" ]; then
+              echo "No JAR found in $TARGET_DIR" >&2
+              exit 2
+            fi
+            chmod 644 "$JAR"
+            # Launch in background (consider replacing this with a systemd service for production)
+            nohup java -jar "$JAR" > "$TARGET_DIR/helloworld.log" 2>&1 &
+            echo "App started with JAR: $JAR"
+          EOF
