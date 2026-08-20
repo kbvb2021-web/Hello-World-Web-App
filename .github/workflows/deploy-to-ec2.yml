@@ -62,7 +62,7 @@ jobs:
           EC2_HOST="${EC2_HOST:?}"
           EC2_USER="${EC2_USER:?}"
           PORT="${EC2_PORT:-22}"
-          TARGET_DIR="${EC2_TARGET_DIR:-/home/${EC2_USER}/app}"
+          TARGET_DIR="${EC2_TARGET_DIR:-/home/${EC2_USER}/vin}"
 
           echo "Creating remote directory: $TARGET_DIR"
           ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa -p "$PORT" "${EC2_USER}@${EC2_HOST}" "mkdir -p '$TARGET_DIR' && chmod 755 '$TARGET_DIR'"
