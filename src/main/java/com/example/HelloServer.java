@@ -19,7 +19,7 @@ public class HelloServer {
         server.createContext("/", new HttpHandler() {
             @Override
             public void handle(HttpExchange exchange) throws IOException {
-                String response = "Hello World Vinod On EC2";
+                String response = "Hello World";
                 exchange.sendResponseHeaders(200, response.getBytes().length);
                 try (OutputStream os = exchange.getResponseBody()) {
                     os.write(response.getBytes());
@@ -28,7 +28,7 @@ public class HelloServer {
         });
 
         server.setExecutor(null);
-        System.out.println("HelloServer started on port " + port);
+        System.out.println("HelloServer started on port  Vinod On EC2" + port);
         server.start();
     }
 }
